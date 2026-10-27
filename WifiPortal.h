@@ -21,6 +21,14 @@ static unsigned long wpTryStart = 0;
 static String wpNets[14];
 static int wpNetCount = 0;
 static bool wpScanPending = false;
+static unsigned long wpLastScanStart = 0;
+static void wpStartScan() {
+  if (wpScanPending || wpState == WP_TRYING) return;
+  WiFi.scanDelete();
+  int result = WiFi.scanNetworks(true);
+  wpLastScanStart = millis();
+  wpScanPending = (result == WIFI_SCAN_RUNNING || result >= 0);
+}
 
 static String wpHtmlEsc(const String& s) {
   String o;
@@ -40,7 +48,11 @@ static void wpCollectScan() {
   int n = WiFi.scanComplete();
   if (n == WIFI_SCAN_RUNNING) return;
   wpScanPending = false;
-  if (n < 0) return;  // сканування не вдалось — користувач впише мережу вручну
+  if (n < 0) {
+    WiFi.scanDelete();
+    Serial.printf("[wifi] scan failed: %d\n", n);
+    return;  // Повторна спроба запускається з wpLoop.
+  }
   wpNetCount = 0;
   for (int i = 0; i < n && wpNetCount < 14; i++) {
     String s = WiFi.SSID(i);
@@ -71,6 +83,7 @@ static const char WP_HEAD[] PROGMEM =
   "a{color:#8fb4ff}</style></head><body>";
 
 static void wpRoot() {
+  if (wpServer.hasArg("scan")) wpStartScan();
   String p;
   p.reserve(2600);
   String head = FPSTR(WP_HEAD);
@@ -78,11 +91,13 @@ static void wpRoot() {
   p += head;
   p += "<h1>Підключення до Wi-Fi</h1><form method=post action=/connect>";
   p += "<label>Оберіть вашу мережу</label><select name=s>";
+  if (wpNetCount == 0) p += "<option value=\"\">&#1052;&#1077;&#1088;&#1077;&#1078;&#1110; &#1097;&#1077; &#1085;&#1077; &#1079;&#1085;&#1072;&#1081;&#1076;&#1077;&#1085;&#1086;</option>";
   for (int i = 0; i < wpNetCount; i++) {
     String e = wpHtmlEsc(wpNets[i]);
     p += "<option value=\"" + e + "\">" + e + "</option>";
   }
   p += "<option value=\"\">— інша мережа (впишіть нижче) —</option></select>";
+  p += "<p><a href='/?scan=1'>&#1054;&#1085;&#1086;&#1074;&#1080;&#1090;&#1080; &#1089;&#1087;&#1080;&#1089;&#1086;&#1082; &#1084;&#1077;&#1088;&#1077;&#1078;</a></p>";
   p += "<label>Назва мережі, якщо її немає у списку</label><input name=m autocapitalize=off>";
   p += "<label>Пароль Wi-Fi</label><input name=p type=password autocapitalize=off>";
   p += "<button type=submit>Підключити</button></form></body></html>";
@@ -145,8 +160,7 @@ inline void wpStart(const char* apPass) {
   }
   wpServer.begin();
   wpState = WP_IDLE;
-  WiFi.scanNetworks(true);  // фонове сканування: екран одразу реагує на дотик
-  wpScanPending = true;
+  wpStartScan();  // фонове сканування: екран одразу реагує на дотик
   Serial.printf("[wifi] портал запущено: %s, IP %s, мереж у списку: %d\n",
                 WP_AP_NAME, WiFi.softAPIP().toString().c_str(), wpNetCount);
 }
@@ -156,6 +170,7 @@ inline int wpLoop() {
   wpDns.processNextRequest();
   wpServer.handleClient();
   if (wpScanPending) wpCollectScan();
+  else if (millis() - wpLastScanStart >= 15000UL) wpStartScan();
   if (wpState == WP_TRYING) {
     if (WiFi.status() == WL_CONNECTED) {
       wpState = WP_OK;
