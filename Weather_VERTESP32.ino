@@ -471,6 +471,7 @@ void displayCalendarFullscreen(int displayMonth, int displayYear) {
   const char* dayHdrs[] = { "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд" };
   const int cellW = 320 / 7;
   const int cellH = 34;
+  const int weekGap = 26;
   const int startY = 34;
 
   for (int i = 0; i < 7; i++) {
@@ -508,7 +509,7 @@ void displayCalendarFullscreen(int displayMonth, int displayYear) {
     x += cellW;
     if ((d + startCol) % 7 == 0) {
       x = 0;
-      y += cellH;
+      y += weekGap;
     }
   }
 
@@ -1339,10 +1340,10 @@ void drawAlertMap(bool full) {
   tft.endWrite();
 
   // верхній ряд: годинник (зліва) і кнопка "НАЗАД" (справа) — у порожніх кутах мапи
-  tft.fillRoundRect(244, 0, 74, 19, 5, DARKGREEN);
-  tft.drawRoundRect(244, 0, 74, 19, 5, WHITE);
+  tft.fillRoundRect(244, 0, 74, 38, 5, DARKGREEN);
+  tft.drawRoundRect(244, 0, 74, 38, 5, WHITE);
   u8g2Fonts.setFont(u8g2_font_6x13_t_cyrillic);
-  drawTextCentered(281, 14, "НАЗАД", WHITE, DARKGREEN);
+  drawTextCentered(281, 24, "НАЗАД", WHITE, DARKGREEN);
   mapClockDrawn[0] = '\0';
   drawMapClock(true);
 
@@ -1574,7 +1575,7 @@ void handleMenuTap(int sx, int sy) {
       setBgFromTouch(sx, sy);
     }
   } else if (menuState == 5) {
-    if (inRect(sx, sy, 236, 0, 319, 34)) {
+    if (inRect(sx, sy, 236, 0, 319, 38)) {
       menuState = 1;
       drawMenu();
     }
