@@ -31,6 +31,7 @@
 #include "UkraineAlertMap.h"
 #include "Settings.h"
 #include "WebConfig.h"
+#include "Notes.h"
 #include "NetworkSecurity.h"
 #include "WeatherNetwork.h"
 #include "UkraineAlarmDistricts.h"
@@ -98,7 +99,7 @@ uint16_t bgColor = RGB565(0, 0, 40);
 #define FORECAST_Y 160
 #define FORECAST_ITEM_W 64
 
-#define WIFI_CONNECT_TIMEOUT 20
+#define WIFI_CONNECT_TIMEOUT 30
 #define WIFI_MANUAL_PORTAL_TIMEOUT 180
 #define SWIPE_THRESHOLD 300
 
@@ -225,6 +226,7 @@ void drawAlertStatus();
 void loadBrightness();
 void applyBrightness();
 void returnToMain();
+void restoreAfterAlarm();
 void drawSystem();
 void loadBg();
 void drawBgScreen();
@@ -468,7 +470,7 @@ void displayCalendarFullscreen(int displayMonth, int displayYear) {
 
   const char* dayHdrs[] = { "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд" };
   const int cellW = 320 / 7;
-  const int cellH = 28;
+  const int cellH = 34;
   const int startY = 34;
 
   for (int i = 0; i < 7; i++) {
@@ -512,6 +514,7 @@ void displayCalendarFullscreen(int displayMonth, int displayYear) {
 
   u8g2Fonts.setFont(u8g2_font_6x13_t_cyrillic);
   drawTextCentered(160, 232, "< свайп > мiсяць    тап  назад", GREY, BACKGROUND_COLOR);
+    notesDrawCalendar(displayMonth);
 }
 
 bool httpGetOK(const String& url) {
@@ -533,6 +536,9 @@ const uint16_t BEEP_CLEAR[] = { 1500, 0 };
 const uint16_t* beepPat = nullptr;
 int beepIdx = 0;
 unsigned long beepNext = 0;
+bool minuteSilenceActive = false, minuteSilencePulse = false;
+unsigned long minuteSilenceEndsAt = 0, minuteSilenceNextAt = 0, minuteSilencePulseEndsAt = 0;
+uint32_t minuteSilenceDayKey = 0;
 volatile int alertState = 0;
 volatile int alertEvent = 0;
 volatile int alertLastCode = 0;
@@ -606,12 +612,12 @@ void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 
 void buzzOn() {
   if (BUZZER_ACTIVE) digitalWrite(BUZZER_PIN, HIGH);
-  else tone(BUZZER_PIN, BUZZER_FREQ);
+  else { ledcWriteTone(BUZZER_PIN, BUZZER_FREQ); ledcWrite(BUZZER_PIN, 128); }
 }
 
 void buzzOff() {
   if (BUZZER_ACTIVE) digitalWrite(BUZZER_PIN, LOW);
-  else noTone(BUZZER_PIN);
+  else { ledcWriteTone(BUZZER_PIN, 0); ledcWrite(BUZZER_PIN, 0); }
 }
 
 void startBeep(const uint16_t* pat) {
@@ -627,7 +633,6 @@ void beepTick() {
   uint16_t d = beepPat[beepIdx];
   if (d == 0) {
     buzzOff();
-    digitalWrite(BUZZER_PIN, LOW);
     beepPat = nullptr;
     return;
   }
@@ -746,7 +751,7 @@ void alertTask(void* arg) {
   };
 
   for (;;) {
-    if (wifiPortalActive || menuState == 7) {
+    if (wifiPortalActive || menuState == 7 || webConfigBusy()) {
       vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
     }
@@ -1078,6 +1083,51 @@ void drawSettingsQr() {
   drawTextCentered(276, 223, "Назад", WHITE, DARKGREEN);
 }
 
+void minuteSilenceOff() {
+  if (BUZZER_ACTIVE) digitalWrite(BUZZER_PIN, LOW);
+  else { ledcWriteTone(BUZZER_PIN, 0); ledcWrite(BUZZER_PIN, 0); }
+  minuteSilencePulse = false;
+}
+
+void minuteSilenceTick(unsigned long now) {
+  if (!cfg.minuteSilence) {
+    if (minuteSilencePulse && !alarmActive && !beepPat && !alertEvent) minuteSilenceOff();
+    else minuteSilencePulse = false;
+    minuteSilenceActive = false;
+    return;
+  }
+  if (!minuteSilenceActive && timeClient.valid() && hour() == 9 && minute() == 0) {
+    uint32_t dayKey = (uint32_t)year() * 10000UL + (uint32_t)month() * 100UL + (uint32_t)day();
+    if (dayKey != minuteSilenceDayKey) {
+      minuteSilenceDayKey = dayKey;
+      minuteSilenceActive = true;
+      minuteSilenceEndsAt = now + 60000UL;
+      minuteSilenceNextAt = now;
+    }
+  }
+  if (!minuteSilenceActive) return;
+  if (alarmActive || beepPat || alertEvent) {
+    if (minuteSilencePulse) minuteSilenceOff();
+    minuteSilenceNextAt = now + 1000UL;
+    return;
+  }
+  if ((long)(now - minuteSilenceEndsAt) >= 0) {
+    minuteSilenceActive = false;
+    minuteSilenceOff();
+    return;
+  }
+  if (minuteSilencePulse && (long)(now - minuteSilencePulseEndsAt) >= 0) minuteSilenceOff();
+  if ((long)(now - minuteSilenceNextAt) >= 0) {
+    minuteSilenceNextAt = now + 1000UL;
+    if (!alarmActive && !beepPat && !alertEvent) {
+      if (BUZZER_ACTIVE) digitalWrite(BUZZER_PIN, HIGH);
+      else { ledcWriteTone(BUZZER_PIN, 900); ledcWrite(BUZZER_PIN, 24); }
+      minuteSilencePulse = true;
+      minuteSilencePulseEndsAt = now + 70UL;
+    }
+  }
+}
+
 bool alarmActive = false;
 int alarmKind = 0;
 unsigned long alarmStartMs = 0;
@@ -1121,12 +1171,6 @@ void drawAlarmFrame(bool inv) {
 }
 
 void startAlarmScreen(int kind) {
-  calendarFullscreen = false;
-  clockFullscreen = false;
-  alertHistScreen = false;
-  hourlyScreen = false;
-  menuState = 0;
-  sysLastSy = -1;
   alarmKind = kind;
   alarmActive = true;
   alarmStartMs = millis();
@@ -1140,7 +1184,7 @@ void alarmTick(unsigned long now) {
   if (now - alarmStartMs >= ALARM_DURATION) {
     alarmActive = false;
     applyBrightness();
-    returnToMain();
+    restoreAfterAlarm();
   }
 }
 
@@ -1461,6 +1505,8 @@ void handleMenuTap(int sx, int sy) {
   } else if (menuState == 7) {
     if (inRect(sx, sy, 226, 188, 319, 239)) {
       menuState = 1;
+      webConfigSessionActive = false;
+      lastWeatherUpdate = 0;
       drawMenu();
     }
   } else if (menuState == 1) {
@@ -1995,6 +2041,19 @@ void drawClockFull(bool force) {
   }
 }
 
+void restoreAfterAlarm() {
+  if (calendarFullscreen) displayCalendarFullscreen(calDisplayMonth, calDisplayYear);
+  else if (clockFullscreen) { tft.fillScreen(BACKGROUND_COLOR); drawClockFull(true); }
+  else if (alertHistScreen) drawAlertHist();
+  else if (hourlyScreen) drawHourly();
+  else if (menuState == 5) drawAlertMap(true);
+  else if (menuState == 4) drawBgScreen();
+  else if (menuState == 3) drawSystem();
+  else if (menuState == 2) drawBrightness();
+  else if (menuState == 1) drawMenu();
+  else returnToMain();
+}
+
 static void wxField(char* last, size_t cap, const char* val, int x, int y,
                     uint16_t color, const char* pre, const char* post) {
   if (strcmp(last, val) == 0) return;
@@ -2193,12 +2252,14 @@ void setup() {
   configureTrustedTls(weatherTlsClient);
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
+  if (!BUZZER_ACTIVE) ledcAttach(BUZZER_PIN, BUZZER_FREQ, 8);
 
   if (!LittleFS.begin(true)) {
     Serial.println("LittleFS init failed!");
   }
 
   cfgLoad();
+  notesLoad();
   loadBrightness();
   loadBg();
   loadAlertLog();
@@ -2239,7 +2300,7 @@ void setup() {
   delay(300);
 
   WiFi.begin();
-  
+
   unsigned long startAttemptTime = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < (WIFI_CONNECT_TIMEOUT * 1000UL)) {
     delay(200);
@@ -2297,31 +2358,22 @@ void loop() {
   delay(2);
   unsigned long now = millis();
   featuresTick(now);  // світлодіод, нічний режим, автояскравість
+  webLoop();  // обслуговуємо веб навіть під час тривоги
+  minuteSilenceTick(now);
 
   if (alarmActive) {
     beepTick();
     alarmTick(now);
     if (ts.touched()) {
       delay(80);
-      while (ts.touched()) delay(10);
+      while (ts.touched()) { webLoop(); delay(10); }
       alarmActive = false;
       applyBrightness();
-      returnToMain();
+      restoreAfterAlarm();
     }
     return;
   }
 
-  static unsigned long webStopAtMs = 0;
-  if (webStarted && menuState != 7) {
-    if (webStopAtMs == 0) webStopAtMs = now + 5000UL;
-    else if ((long)(now - webStopAtMs) >= 0) {
-      webStop();
-      webStopAtMs = 0;
-    }
-  } else {
-    webStopAtMs = 0;
-  }
-  webLoop();
 
   if (wifiPortalActive) {
     wpLoop();
@@ -2340,7 +2392,7 @@ void loop() {
     lastRateMs = now;
   }
 
-  if (alertEvent) {
+  if (alertEvent && !wifiPortalActive && menuState != 7 && !webConfigBusy()) {
     int ev = alertEvent;
     alertEvent = 0;
     if (ev == 1) startBeep(BEEP_ALERT);
@@ -2508,6 +2560,8 @@ void loop() {
     else if (now - settingsSince > 300000UL) {
       settingsSince = 0;
       menuState = 0;
+      webConfigSessionActive = false;
+      lastWeatherUpdate = 0;
       returnToMain();
     }
   } else {
@@ -2517,13 +2571,12 @@ void loop() {
   if (cfgDirty) {
     cfgDirty = false;
     lastWeatherUpdate = 0;
-    lastTemperature[0] = '\0';
-    lastPressure[0] = '\0';
     featuresRecheck();  // нічний режим / автояскравість застосувати одразу
     shownAlertState = -1;
     bool onMain = (menuState == 0 && !calendarFullscreen && !clockFullscreen && !alertHistScreen && !hourlyScreen && !alarmActive);
     if (menuState == 7 && cfgComplete()) {
       menuState = 0;
+      webConfigSessionActive = false;
       onMain = true;
     }
     if (onMain) returnToMain();
@@ -2546,20 +2599,20 @@ void loop() {
   if (clockFullscreen) {
     if (now - lastTimeDraw >= 200) {
       lastTimeDraw = now;
-      timeClient.update();
+      if (!minuteSilenceActive) timeClient.update();
       drawClockFull(false);
     }
     return;
   }
 
   if (alertState != shownAlertState) drawAlertStatus();
-
+notesTick(now);
   if (timeClient.valid()) {
-    if (now - lastNTPUpdate >= 60000UL || lastNTPUpdate == 0) {
+    if (!minuteSilenceActive && (now - lastNTPUpdate >= 60000UL || lastNTPUpdate == 0)) {
       updateNTPTime();
       lastNTPUpdate = now;
     }
-    if (now - lastDSTCheck >= 3600000UL || lastDSTCheck == 0) {
+    if (!minuteSilenceActive && (now - lastDSTCheck >= 3600000UL || lastDSTCheck == 0)) {
       updateDSTCache();
       lastDSTCheck = now;
     }
@@ -2572,7 +2625,7 @@ void loop() {
 
   if (timeClient.valid() && now - lastTimeDraw >= 150) {
     lastTimeDraw = now;
-    timeClient.update();
+    if (!minuteSilenceActive) timeClient.update();
     time_t localNow = (time_t)timeClient.getEpochTime();
     setTime(localNow);
 
@@ -2638,7 +2691,7 @@ void loop() {
     tm* ptm = gmtime(&localNow);
     const char* dayNames[] = { "Недiля", "Понедiлок", "Вiвторок", "Середа", "Четвер", "П'ятниця", "Субота" };
     const char* dow = dayNames[ptm->tm_wday];
-    if (strcmp(dow, lastDayOfWeek) != 0) {
+      if (!notesTickerActive() && strcmp(dow, lastDayOfWeek) != 0) {
       u8g2Fonts.setFont(u8g2_font_10x20_t_cyrillic);
       tft.fillRect(110, 2, 120, 15, BACKGROUND_COLOR);
       int textWidth = u8g2Fonts.getUTF8Width(dow);
@@ -2647,7 +2700,7 @@ void loop() {
     }
   }
 
-  if ((now - lastWeatherUpdate >= 3600000UL || lastWeatherUpdate == 0) && cfg.owmKey[0] && cfg.weatherCity[0] && timeClient.valid()) {
+  if (!webConfigBusy() && !minuteSilenceActive && (now - lastWeatherUpdate >= 3600000UL || lastWeatherUpdate == 0) && cfg.owmKey[0] && cfg.weatherCity[0] && timeClient.valid()) {
     updateWeather(now);
   }
 }
