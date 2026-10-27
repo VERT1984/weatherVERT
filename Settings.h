@@ -25,6 +25,7 @@ struct AppCfg {
   uint8_t autoBr;         // 1 — автояскравість за датчиком світла
   uint8_t ledMode;        // червоний при тривозі: 0 — вимк., 1 — блимає, 2 — світить
   uint8_t ledCalm;        // 1 — зелений світиться, коли спокійно
+  uint8_t minuteSilence;  // щоденний тихий сигнал о 09:00
 };
 
 AppCfg cfg;
@@ -74,6 +75,7 @@ inline void cfgSave(const AppCfg& c) {
   p.putUChar("ab", c.autoBr);
   p.putUChar("lm", c.ledMode);
   p.putUChar("lg", c.ledCalm);
+  p.putUChar("ms", c.minuteSilence);
   for (int n = 0; n < 2; n++) {
     char k[8];
     snprintf(k, sizeof(k), "k%d", n);
@@ -96,6 +98,7 @@ inline void cfgLoad() {
   cfg.autoBr = 0;
   cfg.ledMode = 1;
   cfg.ledCalm = 1;
+  cfg.minuteSilence = 1;
   Preferences p;
   if (p.begin("ws", false)) {
     cfgGet(p, "owm", cfg.owmKey, sizeof(cfg.owmKey));
@@ -111,6 +114,7 @@ inline void cfgLoad() {
     cfg.autoBr = p.getUChar("ab", cfg.autoBr);
     cfg.ledMode = p.getUChar("lm", cfg.ledMode);
     cfg.ledCalm = p.getUChar("lg", cfg.ledCalm);
+    cfg.minuteSilence = p.getUChar("ms", cfg.minuteSilence);
     for (int n = 0; n < 2; n++) {
       char k[8];
       snprintf(k, sizeof(k), "k%d", n);
