@@ -8,11 +8,18 @@
 #include <Update.h>
 
 extern volatile int alertCurLevel[2];  // визначено в скетчі
-extern volatile int alertEvent;        // 1 — тривога, 2 — відбій (читає loop)
+extern volatile int alertEvent;
+void notesWebRoutes();  // сторінка заміток календаря (Notes.h)        // 1 — тривога, 2 — відбій (читає loop)
 
 WebServer webServer(80);
 bool webStarted = false;
 bool webRoutesSet = false;
+volatile bool webConfigSessionActive = false;
+volatile uint32_t webConfigLastActivityMs = 0;
+static constexpr unsigned long WEB_CONFIG_IDLE_MS = 180000UL;
+inline bool webConfigBusy() {
+  return webConfigSessionActive && (uint32_t)(millis() - webConfigLastActivityMs) < WEB_CONFIG_IDLE_MS;
+}
 
 static const char PAGE_A[] PROGMEM = R"HTML(<!doctype html><html lang="uk"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -77,6 +84,7 @@ a{color:#8fb4ff}
 <input name="nb" id="nb" type="number" min="3" max="100" inputmode="numeric">
 <label>Автояскравість за датчиком світла (датчик на GPIO34)</label>
 <select name="ab" id="ab"><option value="0">Вимкнено (немає датчика)</option><option value="1">Увімкнено</option></select>
+<label>&#1065;&#1086;&#1076;&#1077;&#1085;&#1085;&#1080;&#1081; &#1089;&#1080;&#1075;&#1085;&#1072;&#1083; &#1086; 09:00 (1 &#1093;&#1074;&#1080;&#1083;&#1080;&#1085;&#1072;)</label><select name="ms" id="ms"><option value="1">&#1059;&#1074;&#1110;&#1084;&#1082;&#1085;&#1077;&#1085;&#1086;</option><option value="0">&#1042;&#1080;&#1084;&#1082;&#1085;&#1077;&#1085;&#1086;</option></select>
 <label>LED: червоний GPIO27 при тривозі, зелений GPIO32 при відбої</label>
 <select name="lm" id="lm"><option value="1">Червоний блимає</option><option value="2">Червоний світить постійно</option><option value="0">Вимкнено</option></select>
 </div>
@@ -95,13 +103,14 @@ a{color:#8fb4ff}
 <label>Токен alerts.in.ua</label>
 <input name="alerts" id="alerts" autocomplete="off" autocapitalize="off">
 <small><a href="https://alerts.in.ua/api-request" target="_blank">отримати токен</a></small>
-<label>Токен ukrainealarm.com (резервне джерело, якщо alerts.in.ua не відповів)</label>
+<label>Токен ukrainealarm.com (резервне джерело, поки не використовується)</label>
 <input name="uk" id="uk" autocomplete="off" autocapitalize="off">
 <small>Поле порожнє = залишити збережене значення.</small>
 </div>
 <button type="submit">Зберегти</button>
 </form>
 <p style="margin-top:22px"><a href="#" id="tst">Тест: показати екран тривоги на пристрої</a></p>
+<p><a href="#" id="nl">Замітки календаря (дні народження, дати) →</a></p>
 <h2>Обслуговування</h2>
 <div class="card">
 <label>Оновлення прошивки: оберіть файл .bin</label>
@@ -140,12 +149,14 @@ function pack(){packSlot(0);packSlot(1);return true;}
 initSlot(0);initSlot(1);
 q('txt').value=CUR.txt;q('city').value=CUR.city;q('wt').value=CUR.wt;
 q('pm').value=String(CUR.pm);q('no').value=String(CUR.no);q('nb').value=CUR.nb;
-q('ab').value=String(CUR.ab);q('lm').value=String(CUR.lm);
+q('ab').value=String(CUR.ab);q('lm').value=String(CUR.lm);q('ms').value=String(CUR.ms);
 q('owm').placeholder=CUR.ho?'збережено':'вставте ключ';
 q('alerts').placeholder=CUR.ha?'збережено':'вставте токен';
 q('uk').placeholder=CUR.hu?'збережено':'необов\'язково';
 for(let n=0;n<2;n++){const v=LV[String(CUR.a[n])]||LV['-1'];const e=q('s'+n);e.textContent=v[0];e.style.background=v[1];}
+setInterval(()=>fetch('/api/status?pin='+encodeURIComponent(PIN)).catch(()=>{}),30000);
 q('tst').onclick=e=>{e.preventDefault();fetch('/test?pin='+PIN);};
+q('nl').href='/notes?pin='+PIN;
 q('fwb').onclick=()=>{
  const f=q('fwf').files[0];
  if(!f){alert('Спершу оберіть файл .bin');return;}
@@ -179,7 +190,12 @@ static void webJsStr(String& out, const char* s) {
 }
 
 static bool webAuth() {
-  return webServer.arg("pin") == String(cfg.pin);
+  bool ok = webServer.arg("pin") == String(cfg.pin);
+  if (ok) {
+    webConfigLastActivityMs = millis();
+    webConfigSessionActive = true;
+  }
+  return ok;
 }
 
 static void webDenied() {
@@ -251,6 +267,8 @@ static void webRoot() {
   d += (int)c.nightBr;
   d += ",ab:";
   d += (int)c.autoBr;
+  d += ",ms:";
+  d += (int)c.minuteSilence;
   d += ",lm:";
   d += (int)c.ledMode;
   d += ",a:[";
@@ -338,6 +356,7 @@ static void webSave() {
   t.autoBr = webServer.arg("ab").toInt() ? 1 : 0;
   int lm = webServer.arg("lm").toInt();
   t.ledMode = (lm >= 0 && lm <= 2) ? lm : 1;
+  t.minuteSilence = webServer.arg("ms").toInt() ? 1 : 0;
   String nbArg = webServer.arg("nb");
   if (nbArg.length()) t.nightBr = constrain((int)nbArg.toInt(), 3, 100);
 
@@ -464,6 +483,7 @@ inline void webStart() {
     webServer.on("/test", HTTP_GET, webTest);
     webServer.on("/update", HTTP_POST, webUpdateDone, webUpdateUpload);
     webServer.on("/reset", HTTP_POST, webReset);
+    notesWebRoutes();
     webServer.onNotFound([]() {
       webServer.send(404, "text/plain", "404");
     });
