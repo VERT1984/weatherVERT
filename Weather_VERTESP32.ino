@@ -1395,23 +1395,31 @@ constexpr int MENU_BACK_H = 40;
 
 void drawMenu() {
   tft.fillScreen(BACKGROUND_COLOR);
+
+  const uint16_t cBright = RGB565(150, 100, 20);
+  const uint16_t cParams = RGB565(35, 80, 145);
+  const uint16_t cBg     = RGB565(105, 55, 135);
+  const uint16_t cMap    = RGB565(155, 45, 45);
+  const uint16_t cWifi   = RGB565(20, 115, 105);
+  const uint16_t cConfig = RGB565(35, 115, 55);
+
   u8g2Fonts.setFont(u8g2_font_10x20_t_cyrillic);
   drawTextCentered(160, 30, "Меню", CYAN, BACKGROUND_COLOR);
 
-  tft.fillRoundRect(MENU_COL1_X, MENU_ROW1_Y, MENU_COL_W, MENU_ITEM_H, 8, GREY);
-  tft.fillRoundRect(MENU_COL2_X, MENU_ROW1_Y, MENU_COL_W, MENU_ITEM_H, 8, GREY);
-  tft.fillRoundRect(MENU_COL1_X, MENU_ROW2_Y, MENU_COL_W, MENU_ITEM_H, 8, GREY);
-  tft.fillRoundRect(MENU_COL2_X, MENU_ROW2_Y, MENU_COL_W, MENU_ITEM_H, 8, GREY);
-  tft.fillRoundRect(MENU_COL1_X, MENU_ROW3_Y, MENU_COL_W, MENU_ITEM_H, 8, GREY);
-  tft.fillRoundRect(MENU_COL2_X, MENU_ROW3_Y, MENU_COL_W, MENU_ITEM_H, 8, GREY);
+  tft.fillRoundRect(MENU_COL1_X, MENU_ROW1_Y, MENU_COL_W, MENU_ITEM_H, 8, cBright);
+  tft.fillRoundRect(MENU_COL2_X, MENU_ROW1_Y, MENU_COL_W, MENU_ITEM_H, 8, cParams);
+  tft.fillRoundRect(MENU_COL1_X, MENU_ROW2_Y, MENU_COL_W, MENU_ITEM_H, 8, cBg);
+  tft.fillRoundRect(MENU_COL2_X, MENU_ROW2_Y, MENU_COL_W, MENU_ITEM_H, 8, cMap);
+  tft.fillRoundRect(MENU_COL1_X, MENU_ROW3_Y, MENU_COL_W, MENU_ITEM_H, 8, cWifi);
+  tft.fillRoundRect(MENU_COL2_X, MENU_ROW3_Y, MENU_COL_W, MENU_ITEM_H, 8, cConfig);
   tft.fillRoundRect(MENU_COL1_X, MENU_BACK_Y, 296, MENU_BACK_H, 8, DARKGREEN);
 
-  drawTextCentered(MENU_COL1_X + MENU_COL_W / 2, MENU_ROW1_Y + 27, "Яскравість", WHITE, GREY);
-  drawTextCentered(MENU_COL2_X + MENU_COL_W / 2, MENU_ROW1_Y + 27, "Параметри", WHITE, GREY);
-  drawTextCentered(MENU_COL1_X + MENU_COL_W / 2, MENU_ROW2_Y + 27, "Фон", WHITE, GREY);
-  drawTextCentered(MENU_COL2_X + MENU_COL_W / 2, MENU_ROW2_Y + 27, "Мапа тривог", WHITE, GREY);
-  drawTextCentered(MENU_COL1_X + MENU_COL_W / 2, MENU_ROW3_Y + 27, "Зміна Wi-Fi", WHITE, GREY);
-  drawTextCentered(MENU_COL2_X + MENU_COL_W / 2, MENU_ROW3_Y + 27, "Налаштування", WHITE, GREY);
+  drawTextCentered(MENU_COL1_X + MENU_COL_W / 2, MENU_ROW1_Y + 27, "Яскравість", WHITE, cBright);
+  drawTextCentered(MENU_COL2_X + MENU_COL_W / 2, MENU_ROW1_Y + 27, "Параметри", WHITE, cParams);
+  drawTextCentered(MENU_COL1_X + MENU_COL_W / 2, MENU_ROW2_Y + 27, "Фон", WHITE, cBg);
+  drawTextCentered(MENU_COL2_X + MENU_COL_W / 2, MENU_ROW2_Y + 27, "Мапа тривог", WHITE, cMap);
+  drawTextCentered(MENU_COL1_X + MENU_COL_W / 2, MENU_ROW3_Y + 27, "Зміна Wi-Fi", WHITE, cWifi);
+  drawTextCentered(MENU_COL2_X + MENU_COL_W / 2, MENU_ROW3_Y + 27, "Налаштування", WHITE, cConfig);
   drawTextCentered(160, MENU_BACK_Y + 27, "Назад", WHITE, DARKGREEN);
 }
 
@@ -1498,7 +1506,41 @@ void setBrightnessFromTouch(int sx, int sy) {
   }
 }
 
+void flashMenuButton(int sx, int sy) {
+  if (menuState != 1) return;
+
+  int x, y, w, h;
+
+  if (inRect(sx, sy, MENU_COL1_X, MENU_ROW1_Y,
+             MENU_COL1_X + MENU_COL_W, MENU_ROW1_Y + MENU_ITEM_H)) {
+    x = MENU_COL1_X; y = MENU_ROW1_Y; w = MENU_COL_W; h = MENU_ITEM_H;
+  } else if (inRect(sx, sy, MENU_COL2_X, MENU_ROW1_Y,
+                    MENU_COL2_X + MENU_COL_W, MENU_ROW1_Y + MENU_ITEM_H)) {
+    x = MENU_COL2_X; y = MENU_ROW1_Y; w = MENU_COL_W; h = MENU_ITEM_H;
+  } else if (inRect(sx, sy, MENU_COL1_X, MENU_ROW2_Y,
+                    MENU_COL1_X + MENU_COL_W, MENU_ROW2_Y + MENU_ITEM_H)) {
+    x = MENU_COL1_X; y = MENU_ROW2_Y; w = MENU_COL_W; h = MENU_ITEM_H;
+  } else if (inRect(sx, sy, MENU_COL2_X, MENU_ROW2_Y,
+                    MENU_COL2_X + MENU_COL_W, MENU_ROW2_Y + MENU_ITEM_H)) {
+    x = MENU_COL2_X; y = MENU_ROW2_Y; w = MENU_COL_W; h = MENU_ITEM_H;
+  } else if (inRect(sx, sy, MENU_COL1_X, MENU_ROW3_Y,
+                    MENU_COL1_X + MENU_COL_W, MENU_ROW3_Y + MENU_ITEM_H)) {
+    x = MENU_COL1_X; y = MENU_ROW3_Y; w = MENU_COL_W; h = MENU_ITEM_H;
+  } else if (inRect(sx, sy, MENU_COL2_X, MENU_ROW3_Y,
+                    MENU_COL2_X + MENU_COL_W, MENU_ROW3_Y + MENU_ITEM_H)) {
+    x = MENU_COL2_X; y = MENU_ROW3_Y; w = MENU_COL_W; h = MENU_ITEM_H;
+  } else if (inRect(sx, sy, 12, MENU_BACK_Y, 308, MENU_BACK_Y + MENU_BACK_H)) {
+    x = 12; y = MENU_BACK_Y; w = 296; h = MENU_BACK_H;
+  } else {
+    return;
+  }
+
+  tft.drawRoundRect(x, y, w, h, 8, WHITE);
+  delay(60);
+}
+
 void handleMenuTap(int sx, int sy) {
+  flashMenuButton(sx, sy);
   if (menuState == 6) {
     if (inRect(sx, sy, 12, MENU_BACK_Y, 308, MENU_BACK_Y + MENU_BACK_H)) {
       closeWifiConfigPortal();
@@ -1802,7 +1844,7 @@ void drawBgPreview() {
   tft.fillRoundRect(20, 156, 280, 28, 6, c);
   tft.drawRoundRect(20, 156, 280, 28, 6, WHITE);
   u8g2Fonts.setFont(u8g2_font_6x13_t_cyrillic);
-  drawTextCentered(90, 175, "Чернiгiв  12.3 C", YELLOW, c);
+  drawTextCentered(90, 175, "Чернiгiв 12.3 C", YELLOW, c);
   drawTextCentered(220, 175, "Приклад тексту", WHITE, c);
 }
 
@@ -1907,7 +1949,7 @@ void redrawMain() {
   u8g2Fonts.setFont(u8g2_font_6x13_t_cyrillic);
   if (strlen(lastTemperature) > 0) {
     String tempStr = String(cfg.weatherTitle) + "  " + lastTemperature;
-    drawText(10, 10, tempStr.c_str(), YELLOW, BACKGROUND_COLOR);
+    drawText(1, 10, tempStr.c_str(), YELLOW, BACKGROUND_COLOR);
   }
   if (strlen(lastSunrise) > 0) {
     char buf[32];
@@ -1936,7 +1978,7 @@ void redrawMain() {
   }
   if (lastAqi > 0) drawAqiLine();
   if (strlen(lastWeatherCondition) > 0) {
-    displayWeatherIcon(lastWeatherCondition, TEMP_X + 10, TEMP_Y + 5);
+    displayWeatherIcon(lastWeatherCondition, TEMP_X + 1, TEMP_Y + 5);
   }
 
   for (int i = 0; i < fcCount; i++) {
@@ -2106,7 +2148,7 @@ void updateWeather(unsigned long now) {
         snprintf(windBuf, sizeof(windBuf), "%.1f", wind);
         snprintf(title, sizeof(title), "%s  ", cfg.weatherTitle);
 
-        wxField(lastTemperature, sizeof(lastTemperature), tempBuf, 10, 10, YELLOW, title, "");
+        wxField(lastTemperature, sizeof(lastTemperature), tempBuf, 1, 10, YELLOW, title, "");
         wxField(lastSunrise, sizeof(lastSunrise), srBuf, TEMP_X, WX_Y_SUN, MAGENTA, "Схід: ", "");
         wxField(lastSunset, sizeof(lastSunset), ssBuf, TEMP_X + 70, WX_Y_SUN, MAGENTA, "Зах: ", "");
         wxField(lastPressure, sizeof(lastPressure), pressBuf, TEMP_X, WX_Y_PRESS, MAGENTA, "Тиск: ", cfg.pressMm ? " мм рт.ст." : " hPa");
@@ -2114,8 +2156,8 @@ void updateWeather(unsigned long now) {
         wxField(lastWindSpeed, sizeof(lastWindSpeed), windBuf, TEMP_X, WX_Y_WIND, WHITE, "Вiтер: ", " м/с");
 
         if (strcmp(cond, lastWeatherCondition) != 0) {
-          tft.fillRect(TEMP_X + 10, TEMP_Y + 5, IMG_WIDTH, IMG_HEIGHT, BACKGROUND_COLOR);
-          displayWeatherIcon(cond, TEMP_X + 10, TEMP_Y + 5, featuresIsNight());
+          tft.fillRect(TEMP_X, TEMP_Y + 5, IMG_WIDTH, IMG_HEIGHT, BACKGROUND_COLOR);
+          displayWeatherIcon(cond, TEMP_X + 1, TEMP_Y + 5, featuresIsNight());
           strlcpy(lastWeatherCondition, cond, sizeof(lastWeatherCondition));
         }
       }
