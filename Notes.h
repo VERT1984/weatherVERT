@@ -16,9 +16,9 @@
 
 #define NOTES_MAX 50       // скільки заміток
 #define NOTES_NEAR_DAYS 3  // за скільки днів до дати рядок з'являється на головному екрані
-#define TICK_X 112         // зона рядка, що біжить (на місці дня тижня)
-#define TICK_Y 0
-#define TICK_W 136
+#define TICK_X 96         // зона рядка, що біжить (на місці дня тижня)
+#define TICK_Y 1
+#define TICK_W 152
 #define TICK_H 14
 
 struct Note {
